@@ -4,6 +4,28 @@
 
 pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
 
+## Artifacts
+
+### `artifacts/qr-generator` (`@workspace/qr-generator`)
+
+Smart QR Generator Pro — a fully frontend-only React + Vite SaaS web app for generating customizable QR codes.
+
+**Features:**
+- QR generation from text, URL, Google Maps, vCard contacts, and files (images, audio, video, documents via base64 encoding)
+- Advanced customization: foreground/background colors, gradients, QR size, error correction, corner styles
+- Smart center logo based on input type (auto-detected), with custom logo upload option
+- Drag & drop file upload using react-dropzone
+- Download as PNG or SVG, copy to clipboard
+- QR history saved in localStorage (no backend)
+- Search, filter by type, delete from history
+- Settings page for default color/size preferences
+- Dark/light mode toggle with localStorage persistence
+- Smooth animations with framer-motion
+
+**Tech:** React, Vite, TypeScript, Tailwind CSS, qrcode.react, framer-motion, react-dropzone, lucide-react
+**Storage:** LocalStorage only — no backend, no database
+**Route:** Served at `/`
+
 ## Stack
 
 - **Monorepo tool**: pnpm workspaces

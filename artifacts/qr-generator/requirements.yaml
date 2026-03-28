@@ -1,0 +1,17 @@
+packages:
+  "react-dropzone": "For drag and drop file uploads to convert to base64 QR codes"
+  "html2canvas": "To capture the QR preview along with any CSS frames/borders for saving to history"
+  "clsx": "Utility for constructing className strings conditionally"
+  "tailwind-merge": "Utility function to efficiently merge Tailwind CSS classes"
+  "lucide-react": "Beautiful consistent icons"
+  "framer-motion": "Smooth page transitions and micro-interactions"
+  "qrcode.react": "Core library for rendering SVG/Canvas QR codes"
+
+images:
+  - path: "artifacts/qr-generator/public/images/hero-abstract.png"
+    description: "Dark moody abstract 3d glassmorphism shapes with deep purple and vibrant blue lighting, premium saas aesthetic"
+    aspect_ratio: "16:9"
+
+notes:
+  - No backend required. All data persistence uses localStorage.
+  - Generates very large base64 strings for file uploads; implemented length warnings for QR capacity limits.
