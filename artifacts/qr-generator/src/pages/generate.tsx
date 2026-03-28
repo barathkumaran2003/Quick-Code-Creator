@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Link2, MapPin, User, FileImage, FileAudio, FileVideo, FileText, Type, UploadCloud, Save, Zap, X } from 'lucide-react';
+import { Link2, MapPin, User, FileImage, FileAudio, FileVideo, FileText, Type, UploadCloud, Save, Zap, X, Loader2, CheckCircle2 } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 import { InputType, QRCustomization } from '@/lib/types';
 import { DEFAULT_CUSTOMIZATION, useQRStore } from '@/hooks/use-qr-store';
@@ -16,6 +16,7 @@ import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { useUpload } from '@workspace/object-storage-web';
 
 const typeIcons = {
   text: Type,
@@ -28,15 +29,36 @@ const typeIcons = {
   document: FileText,
 };
 
+const FILE_SIZE_LIMITS: Record<string, number> = {
+  image: 5 * 1024 * 1024,
+  audio: 10 * 1024 * 1024,
+  video: 20 * 1024 * 1024,
+  document: 5 * 1024 * 1024,
+};
+
+const FILE_SIZE_LABELS: Record<string, string> = {
+  image: '5MB',
+  audio: '10MB',
+  video: '20MB',
+  document: '5MB',
+};
+
+function getFileType(file: File): InputType {
+  if (file.type.startsWith('image/')) return 'image';
+  if (file.type.startsWith('audio/')) return 'audio';
+  if (file.type.startsWith('video/')) return 'video';
+  return 'document';
+}
+
 export default function GeneratePage() {
   const { settings, saveQR } = useQRStore();
   const { toast } = useToast();
   
-  // State
   const [activeTab, setActiveTab] = useState('content');
   const [inputType, setInputType] = useState<InputType>('url');
   const [data, setData] = useState('');
   const [fileName, setFileName] = useState<string>();
+  const [uploadDone, setUploadDone] = useState(false);
   
   const [customization, setCustomization] = useState<QRCustomization>({
     ...DEFAULT_CUSTOMIZATION,
@@ -49,11 +71,20 @@ export default function GeneratePage() {
   const [logoType, setLogoType] = useState<'auto' | 'custom' | 'none'>('auto');
   const [customLogoData, setCustomLogoData] = useState<string>();
   const [previewImage, setPreviewImage] = useState<string>();
-
-  // Contact Form State
   const [contact, setContact] = useState({ fn: '', tel: '', email: '', org: '', url: '' });
 
-  // Update vCard data when contact fields change
+  const { uploadFile, isUploading, progress } = useUpload({
+    basePath: '/api/storage',
+    onSuccess: (response) => {
+      const fileUrl = `${window.location.origin}/api/storage${response.objectPath}`;
+      setData(fileUrl);
+      setUploadDone(true);
+    },
+    onError: (err) => {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    },
+  });
+
   useEffect(() => {
     if (inputType === 'contact') {
       const vcard = `BEGIN:VCARD\nVERSION:3.0\nFN:${contact.fn}\nTEL;TYPE=CELL:${contact.tel}\nEMAIL:${contact.email}\nORG:${contact.org}\nURL:${contact.url}\nEND:VCARD`;
@@ -61,7 +92,6 @@ export default function GeneratePage() {
     }
   }, [contact, inputType]);
 
-  // Handle generic text/url input
   const handleTextChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const val = e.target.value;
     setData(val);
@@ -73,33 +103,34 @@ export default function GeneratePage() {
     }
   };
 
-  // File Dropzone
   const onDrop = async (acceptedFiles: File[]) => {
     if (acceptedFiles.length === 0) return;
     const file = acceptedFiles[0];
-    
-    // Size check (max ~2MB for base64 QR, though even that is huge for a QR. Let's set a strict 100KB warning)
-    if (file.size > 1024 * 100) {
-      toast({ 
-        title: "File is very large", 
-        description: "QR codes have data limits. Converting large files to QR may result in an unscannable code.",
-        variant: "destructive"
+    const detectedType = getFileType(file);
+    const limit = FILE_SIZE_LIMITS[detectedType] ?? 5 * 1024 * 1024;
+    const limitLabel = FILE_SIZE_LABELS[detectedType] ?? '5MB';
+
+    if (file.size > limit) {
+      toast({
+        title: "File too large",
+        description: `Maximum size for ${detectedType} files is ${limitLabel}. Your file is ${formatBytes(file.size)}.`,
+        variant: "destructive",
       });
+      return;
     }
 
-    try {
-      const base64 = await fileToBase64(file);
-      setData(base64);
-      setFileName(`${file.name} (${formatBytes(file.size)})`);
-      
-      if (file.type.startsWith('image/')) setInputType('image');
-      else if (file.type.startsWith('audio/')) setInputType('audio');
-      else if (file.type.startsWith('video/')) setInputType('video');
-      else setInputType('document');
-      
-    } catch (e) {
-      toast({ title: "Failed to read file", variant: "destructive" });
-    }
+    setData('');
+    setUploadDone(false);
+    setFileName(`${file.name} (${formatBytes(file.size)})`);
+    setInputType(detectedType);
+
+    await uploadFile(file);
+  };
+
+  const handleClearFile = () => {
+    setData('');
+    setFileName(undefined);
+    setUploadDone(false);
   };
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop, maxFiles: 1 });
@@ -230,19 +261,53 @@ export default function GeneratePage() {
                         {...getRootProps()} 
                         className={cn(
                           "border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors duration-200 ease-in-out flex flex-col items-center justify-center min-h-[200px]",
-                          isDragActive ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/50"
+                          isDragActive ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/50",
+                          isUploading && "pointer-events-none opacity-70"
                         )}
                       >
                         <input {...getInputProps()} />
-                        <UploadCloud className="w-10 h-10 text-muted-foreground mb-4" />
-                        <p className="font-medium mb-1">Drag & drop your file here</p>
-                        <p className="text-sm text-muted-foreground">or click to browse files</p>
+                        {isUploading ? (
+                          <>
+                            <Loader2 className="w-10 h-10 text-primary mb-4 animate-spin" />
+                            <p className="font-medium mb-1">Uploading file...</p>
+                            <div className="w-full max-w-xs bg-muted rounded-full h-2 mt-3">
+                              <div
+                                className="bg-primary h-2 rounded-full transition-all duration-300"
+                                style={{ width: `${progress}%` }}
+                              />
+                            </div>
+                            <p className="text-sm text-muted-foreground mt-2">{progress}%</p>
+                          </>
+                        ) : (
+                          <>
+                            <UploadCloud className="w-10 h-10 text-muted-foreground mb-4" />
+                            <p className="font-medium mb-1">Drag & drop your file here</p>
+                            <p className="text-sm text-muted-foreground">or click to browse files</p>
+                            <p className="text-xs text-muted-foreground mt-2">
+                              Images up to 5MB · Audio up to 10MB · Video up to 20MB · Docs up to 5MB
+                            </p>
+                          </>
+                        )}
                       </div>
-                      {fileName && (
-                        <div className="p-3 bg-primary/10 text-primary rounded-lg text-sm flex items-center justify-between">
-                          <span className="font-medium truncate mr-4">{fileName}</span>
-                          <Button variant="ghost" size="sm" onClick={() => { setData(''); setFileName(undefined); }} className="h-6 px-2 shrink-0">Clear</Button>
-                        </div>
+
+                      {fileName && !isUploading && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className={cn(
+                            "p-3 rounded-lg text-sm flex items-center justify-between",
+                            uploadDone ? "bg-green-500/10 text-green-600 dark:text-green-400" : "bg-muted text-muted-foreground"
+                          )}
+                        >
+                          <div className="flex items-center gap-2 truncate mr-4">
+                            {uploadDone && <CheckCircle2 className="w-4 h-4 shrink-0" />}
+                            <span className="font-medium truncate">{fileName}</span>
+                            {uploadDone && <span className="text-xs shrink-0">Uploaded · QR ready</span>}
+                          </div>
+                          <Button variant="ghost" size="sm" onClick={handleClearFile} className="h-6 px-2 shrink-0">
+                            <X className="w-3 h-3" />
+                          </Button>
+                        </motion.div>
                       )}
                     </div>
                   )}
@@ -289,7 +354,6 @@ export default function GeneratePage() {
                 </div>
               </div>
 
-              {/* Gradient toggle disabled visually for true Canvas reliability, but keeping UI as requested */}
               <div className="pt-4 border-t border-border flex items-center justify-between">
                 <div className="space-y-0.5">
                   <Label>Use Gradient</Label>
@@ -432,7 +496,7 @@ export default function GeneratePage() {
             size="lg" 
             className="w-full font-bold text-lg h-14 hover-elevate shadow-xl shadow-primary/25 bg-gradient-to-r from-primary to-secondary text-white border-0"
             onClick={handleSave}
-            disabled={!data}
+            disabled={!data || isUploading}
           >
             <Save className="w-5 h-5 mr-2" />
             Save to History
